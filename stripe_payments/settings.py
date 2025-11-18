@@ -1,6 +1,3 @@
-
-# SECRET_KEY = 'django-insecure-dd-l1d^x)&njfpa4@rse0+l(xqzb$&c7$4(1us5c^!o+pk)0+0'
-import os
 from pathlib import Path
 from environ import Env
 
