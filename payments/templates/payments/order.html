@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заказ #{{ order.id }}</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            margin: 0 auto;
+            overflow: hidden;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+        
+        .content {
+            padding: 40px 30px;
+        }
+        
+        .order-items {
+            margin-bottom: 30px;
+        }
+        
+        .item-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border: 2px solid #f0f0f0;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            transition: all 0.3s;
+        }
+        
+        .item-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+        }
+        
+        .item-info h3 {
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .item-info p {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .item-price {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .quantity {
+            font-size: 0.8em;
+            color: #888;
+            margin-left: 5px;
+        }
+        
+        .summary {
+            background: #f9f9f9;
+            padding: 25px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        
+        .summary-row.total {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #667eea;
+            border-top: 2px solid #ddd;
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+        
+        .discount-badge {
+            color: #22c55e;
+            font-weight: 600;
+        }
+        
+        .tax-badge {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+        
+        .buy-button {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.2em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .buy-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        .buy-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            color: #667eea;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .back-link {
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            margin-top: 20px;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        .back-link:hover {
+            color: #764ba2;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛒 Заказ #{{ order.id }}</h1>
+            <span class="status-badge">{{ order.get_status_display }}</span>
+        </div>
+        
+        <div class="content">
+            <div class="order-items">
+                <h2 style="margin-bottom: 20px; color: #333;">Товары в заказе</h2>
+                {% for order_item in order_items %}
+                <div class="item-card">
+                    <div class="item-info">
+                        <h3>{{ order_item.item.name }}</h3>
+                        <p>{{ order_item.item.description }}</p>
+                    </div>
+                    <div class="item-price">
+                        {{ order_item.item.get_display_price }} {{ order_item.item.currency|upper }}
+                        <span class="quantity">x{{ order_item.quantity }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="summary">
+                <h3 style="margin-bottom: 20px; color: #333;">Сводка заказа</h3>
+                
+                {% if order.discount %}
+                <div class="summary-row">
+                    <span>Скидка:</span>
+                    <span class="discount-badge">{{ order.discount.name }}</span>
+                </div>
+                {% endif %}
+                
+                {% if order.tax %}
+                <div class="summary-row">
+                    <span>Налог:</span>
+                    <span class="tax-badge">{{ order.tax.name }} ({{ order.tax.percentage }}%)</span>
+                </div>
+                {% endif %}
+                
+                <div class="summary-row total">
+                    <span>Итого:</span>
+                    <span>{{ order.total_amount }} {{ order.currency|upper }}</span>
+                </div>
+            </div>
+            
+            {% if order.status == 'pending' %}
+            <button id="buy-button" class="buy-button">
+                💳 Оплатить заказ
+            </button>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Перенаправление на оплату...</p>
+            </div>
+            
+            <div class="error" id="error"></div>
+            {% else %}
+            <div style="text-align: center; padding: 20px; background: #f0fdf4; border-radius: 12px; color: #16a34a; font-weight: 600;">
+                ✅ Заказ уже оплачен
+            </div>
+            {% endif %}
+            
+            <a href="/" class="back-link">← Вернуться к списку</a>
+        </div>
+    </div>
+
+    <script>
+        var stripe = Stripe('{{ stripe_publishable_key }}');
+        var buyButton = document.getElementById('buy-button');
+        
+        {% if order.status == 'pending' %}
+        var loading = document.getElementById('loading');
+        var errorDiv = document.getElementById('error');
+        
+        buyButton.addEventListener('click', function() {
+            buyButton.disabled = true;
+            loading.style.display = 'block';
+            errorDiv.style.display = 'none';
+            
+            fetch('/buy/order/{{ order.id }}/', {
+                method: 'GET',
+            })
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(session) {
+                if (session.error) {
+                    throw new Error(session.error);
+                }
+                return stripe.redirectToCheckout({ sessionId: session.id });
+            })
+            .then(function(result) {
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                errorDiv.textContent = 'Ошибка: ' + error.message;
+                errorDiv.style.display = 'block';
+                buyButton.disabled = false;
+                loading.style.display = 'none';
+            });
+        });
+        {% endif %}
+    </script>
+</body>
+</html>
