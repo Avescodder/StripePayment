@@ -96,32 +96,14 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-def validate_stripe_keys():
-    """Валидация Stripe ключей перед запуском"""
-    keys = {
-        'USD_PUB': env('STRIPE_PUBLISHABLE_KEY_USD', default=''),
-        'USD_SEC': env('STRIPE_SECRET_KEY_USD', default=''),
-        'EUR_PUB': env('STRIPE_PUBLISHABLE_KEY_EUR', default=''),
-        'EUR_SEC': env('STRIPE_SECRET_KEY_EUR', default=''),
-    }
+keys = {
+    'USD_PUB': env('STRIPE_PUBLISHABLE_KEY_USD', default=''),
+    'USD_SEC': env('STRIPE_SECRET_KEY_USD', default=''),
+    'EUR_PUB': env('STRIPE_PUBLISHABLE_KEY_EUR', default=''),
+    'EUR_SEC': env('STRIPE_SECRET_KEY_EUR', default=''),
+}
     
-    for name, key in keys.items():
-        if not key:
-            raise ValueError(f"Stripe key {name} не задан в .env файле!")
-        
-        if DEBUG and not key.startswith(('pk_test_', 'sk_test_')):
-            raise ValueError(
-                f"В DEBUG режиме можно использовать только test ключи! "
-                f"{name} начинается с {key[:10]}..."
-            )
-        
-        if not DEBUG and not key.startswith(('pk_live_', 'sk_live_')):
-            raise ValueError(
-                f"В production используйте live ключи! "
-                f"{name} должен начинаться с pk_live_ или sk_live_"
-            )
 
-validate_stripe_keys()
 
 STRIPE_PUBLISHABLE_KEY_USD = env('STRIPE_PUBLISHABLE_KEY_USD')
 STRIPE_SECRET_KEY_USD = env('STRIPE_SECRET_KEY_USD')

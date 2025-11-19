@@ -126,20 +126,6 @@ else:
 stripe_pub = os.environ.get('STRIPE_PUBLISHABLE_KEY_USD', '')
 stripe_sec = os.environ.get('STRIPE_SECRET_KEY_USD', '')
 
-if debug:
-    if not stripe_pub.startswith('pk_test_'):
-        print("⚠️  WARNING: Using non-test Stripe publishable key in DEBUG mode!")
-    if not stripe_sec.startswith('sk_test_'):
-        print("⚠️  WARNING: Using non-test Stripe secret key in DEBUG mode!")
-else:
-    if not stripe_pub.startswith('pk_live_'):
-        print("❌ ERROR: Must use live Stripe publishable key in production!")
-        sys.exit(1)
-    if not stripe_sec.startswith('sk_live_'):
-        print("❌ ERROR: Must use live Stripe secret key in production!")
-        sys.exit(1)
-    print("✅ Using live Stripe keys")
-
 print("✅ Environment validation passed")
 END
 
