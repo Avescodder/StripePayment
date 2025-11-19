@@ -1,10 +1,11 @@
+import os
 from django.contrib import admin
 from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
 from payments import views
 
-admin_url = getattr(settings, 'ADMIN_URL', 'admin/')
+admin_url = os.getenv('ADMIN_URL', 'admin/')
 
 urlpatterns = [
     path(admin_url, admin.site.urls),
@@ -21,7 +22,7 @@ urlpatterns = [
     
     path('webhook/stripe/', views.stripe_webhook, name='stripe_webhook'),
     
-    path('health/', views.health_check, name='health_check'),
+    path('health', views.health_check, name='health_check'),
 ]
 
 if settings.DEBUG:

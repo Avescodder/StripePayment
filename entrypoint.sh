@@ -6,95 +6,40 @@ echo "🚀 Starting Django Application"
 echo "======================================"
 
 echo "⏳ Waiting for PostgreSQL..."
-python - << END
-import time
-import socket
-import sys
+max_retries=30
+retry_count=0
 
-max_retries = 30
-retry_count = 0
-
-while retry_count < max_retries:
-    try:
-        s = socket.create_connection(("db", 5432), timeout=2)
-        s.close()
-        print("✅ PostgreSQL is ready!")
-        sys.exit(0)
-    except Exception as e:
-        retry_count += 1
-        if retry_count >= max_retries:
-            print(f"❌ Failed to connect to PostgreSQL after {max_retries} attempts")
-            sys.exit(1)
-        print(f"⏳ PostgreSQL not ready yet, attempt {retry_count}/{max_retries}...")
-        time.sleep(1)
-END
+while [ $retry_count -lt $max_retries ]; do
+    if pg_isready -h db -p 5432 -U stripe_user > /dev/null 2>&1; then
+        echo "✅ PostgreSQL is ready!"
+        break
+    fi
+    retry_count=$((retry_count + 1))
+    if [ $retry_count -eq $max_retries ]; then
+        echo "❌ Failed to connect to PostgreSQL"
+        exit 1
+    fi
+    sleep 1
+done
 
 echo "⏳ Waiting for Redis..."
-python - << END
-import time
-import socket
-import sys
+retry_count=0
 
-max_retries = 30
-retry_count = 0
-
-while retry_count < max_retries:
-    try:
-        s = socket.create_connection(("redis", 6379), timeout=2)
-        s.close()
-        print("✅ Redis is ready!")
-        sys.exit(0)
-    except Exception as e:
-        retry_count += 1
-        if retry_count >= max_retries:
-            print(f"❌ Failed to connect to Redis after {max_retries} attempts")
-            sys.exit(1)
-        print(f"⏳ Redis not ready yet, attempt {retry_count}/{max_retries}...")
-        time.sleep(1)
-END
-
-echo "📊 Running database migrations..."
-python manage.py migrate --noinput
-if [ $? -eq 0 ]; then
-    echo "✅ Migrations completed successfully"
-else
-    echo "❌ Migrations failed"
-    exit 1
-fi
-
-echo "📦 Collecting static files..."
-python manage.py collectstatic --noinput --clear
-if [ $? -eq 0 ]; then
-    echo "✅ Static files collected successfully"
-else
-    echo "❌ Static files collection failed"
-    exit 1
-fi
-
-echo "👤 Checking superuser..."
-python manage.py shell << END
-from django.contrib.auth import get_user_model
-import os
-
-User = get_user_model()
-
-username = os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')
-email = os.environ.get('DJANGO_SUPERUSER_EMAIL', 'admin@example.com')
-password = os.environ.get('DJANGO_SUPERUSER_PASSWORD', 'admin')
-
-if not User.objects.filter(username=username).exists():
-    User.objects.create_superuser(username, email, password)
-    print(f'✅ Superuser created: {username}')
-else:
-    print(f'ℹ️  Superuser already exists: {username}')
-END
-
-echo "📁 Creating directories..."
-mkdir -p /app/logs /app/media /app/staticfiles
-echo "✅ Directories created"
+while [ $retry_count -lt $max_retries ]; do
+    if timeout 1 bash -c "echo > /dev/tcp/redis/6379" 2>/dev/null; then
+        echo "✅ Redis is ready!"
+        break
+    fi
+    retry_count=$((retry_count + 1))
+    if [ $retry_count -eq $max_retries ]; then
+        echo "❌ Failed to connect to Redis"
+        exit 1
+    fi
+    sleep 1
+done
 
 echo "🔍 Validating environment..."
-python - << END
+uv run python - << 'PYEOF'
 import os
 import sys
 
@@ -110,33 +55,56 @@ required_vars = [
 ]
 
 missing_vars = [var for var in required_vars if not os.environ.get(var)]
-
 if missing_vars:
-    print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+    print(f"❌ Missing: {', '.join(missing_vars)}")
     sys.exit(1)
 
-# Check DEBUG mode
 debug = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
-if debug:
-    print("⚠️  WARNING: Running in DEBUG mode!")
-else:
-    print("✅ Running in production mode (DEBUG=False)")
-
-# Check Stripe keys
-stripe_pub = os.environ.get('STRIPE_PUBLISHABLE_KEY_USD', '')
-stripe_sec = os.environ.get('STRIPE_SECRET_KEY_USD', '')
-
-print("✅ Environment validation passed")
-END
+print("⚠️  DEBUG mode" if debug else "✅ Production mode")
+print("✅ Environment OK")
+PYEOF
 
 if [ $? -ne 0 ]; then
-    echo "❌ Environment validation failed"
     exit 1
 fi
 
+mkdir -p /app/logs /app/media /app/staticfiles
+
+echo "📊 Running migrations..."
+if uv run python manage.py migrate --noinput; then
+    echo "✅ Migrations OK"
+else
+    echo "❌ Migrations failed"
+    exit 1
+fi
+
+echo "📦 Collecting static..."
+if uv run python manage.py collectstatic --noinput --clear; then
+    echo "✅ Static files OK"
+else
+    echo "❌ Static collection failed"
+    exit 1
+fi
+
+echo "👤 Creating superuser..."
+uv run python manage.py shell << 'PYEOF'
+from django.contrib.auth import get_user_model
+import os
+
+User = get_user_model()
+username = os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')
+email = os.environ.get('DJANGO_SUPERUSER_EMAIL', 'admin@example.com')
+password = os.environ.get('DJANGO_SUPERUSER_PASSWORD', 'admin')
+
+if not User.objects.filter(username=username).exists():
+    User.objects.create_superuser(username, email, password)
+    print(f'✅ Superuser created: {username}')
+else:
+    print(f'ℹ️  Superuser exists: {username}')
+PYEOF
+
 echo "======================================"
-echo "✅ Initialization complete"
-echo "🚀 Starting server..."
+echo "✅ Ready to start"
 echo "======================================"
 
 exec "$@"

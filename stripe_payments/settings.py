@@ -1,7 +1,11 @@
+import os
+import dotenv
 from pathlib import Path
 from environ import Env
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
+
+dotenv.load_dotenv()
 
 env = Env()
 Env.read_env()
@@ -53,6 +57,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'payments.context_processors.admin_url', 
             ],
         },
     },
@@ -123,13 +128,12 @@ CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': env('REDIS_URL', default='redis://redis:6379/0'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'SOCKET_CONNECT_TIMEOUT': 5,
-            'SOCKET_TIMEOUT': 5,
-        },
         'KEY_PREFIX': 'stripe_payments',
-        'TIMEOUT': 300,  
+        'TIMEOUT': 300,
+        'OPTIONS': {
+            'db': '0',
+            'pool_class': 'redis.BlockingConnectionPool',
+        }
     }
 }
 
@@ -228,4 +232,4 @@ if not DEBUG and env('SENTRY_DSN', default=''):
         environment='production',
         before_send=lambda event, hint: event if not DEBUG else None,
     )
-ADMIN_URL = env('ADMIN_URL', default='admin/')
+ADMIN_URL = os.getenv('ADMIN_URL', 'admin/')
