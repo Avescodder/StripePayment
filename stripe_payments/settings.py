@@ -1,16 +1,24 @@
 from pathlib import Path
 from environ import Env
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 
 env = Env()
 Env.read_env()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-this-in-production')
+SECRET_KEY = env('SECRET_KEY')  
 
-DEBUG = env.bool('DEBUG', default=True)
+DEBUG = env.bool('DEBUG', default=False)
 
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
+
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ValueError("ALLOWED_HOSTS должен быть установлен в production!")
+
+if DEBUG and not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -60,6 +68,10 @@ DATABASES = {
         'PASSWORD': env('POSTGRES_PASSWORD', default='postgres'),
         'HOST': env('POSTGRES_HOST', default='db'),
         'PORT': env('POSTGRES_PORT', default='5432'),
+        'CONN_MAX_AGE': 600,  
+        'OPTIONS': {
+            'connect_timeout': 10,
+        }
     }
 }
 
@@ -77,12 +89,39 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+def validate_stripe_keys():
+    """Валидация Stripe ключей перед запуском"""
+    keys = {
+        'USD_PUB': env('STRIPE_PUBLISHABLE_KEY_USD', default=''),
+        'USD_SEC': env('STRIPE_SECRET_KEY_USD', default=''),
+        'EUR_PUB': env('STRIPE_PUBLISHABLE_KEY_EUR', default=''),
+        'EUR_SEC': env('STRIPE_SECRET_KEY_EUR', default=''),
+    }
+    
+    for name, key in keys.items():
+        if not key:
+            raise ValueError(f"Stripe key {name} не задан в .env файле!")
+        
+        if DEBUG and not key.startswith(('pk_test_', 'sk_test_')):
+            raise ValueError(
+                f"В DEBUG режиме можно использовать только test ключи! "
+                f"{name} начинается с {key[:10]}..."
+            )
+        
+        if not DEBUG and not key.startswith(('pk_live_', 'sk_live_')):
+            raise ValueError(
+                f"В production используйте live ключи! "
+                f"{name} должен начинаться с pk_live_ или sk_live_"
+            )
+
+validate_stripe_keys()
 
 STRIPE_PUBLISHABLE_KEY_USD = env('STRIPE_PUBLISHABLE_KEY_USD')
 STRIPE_SECRET_KEY_USD = env('STRIPE_SECRET_KEY_USD')
@@ -92,26 +131,97 @@ STRIPE_SECRET_KEY_EUR = env('STRIPE_SECRET_KEY_EUR')
 
 STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET', default='')
 
+STRIPE_WEBHOOK_IPS = [
+    '3.18.12.63', '3.130.192.231', '13.235.14.237', '13.235.122.149',
+    '18.211.135.69', '35.154.171.200', '52.15.183.38', '54.187.174.169',
+    '54.187.205.235', '54.187.216.72',
+]
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': env('REDIS_URL', default='redis://redis:6379/0'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+        },
+        'KEY_PREFIX': 'stripe_payments',
+        'TIMEOUT': 300,  
+    }
+}
+
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+SESSION_CACHE_ALIAS = 'default'
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
     'handlers': {
         'console': {
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        'stripe_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'stripe.log',
+            'maxBytes': 1024 * 1024 * 10,
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': env('DJANGO_LOG_LEVEL', default='INFO'),
+            'propagate': False,
+        },
+        'payments': {
+            'handlers': ['console', 'stripe_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'stripe': {
+            'handlers': ['console', 'stripe_file'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
     },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': env('DJANGO_LOG_LEVEL', default='INFO'),
-            'propagate': False,
-        },
-    },
 }
+
+(BASE_DIR / 'logs').mkdir(exist_ok=True)
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
@@ -120,3 +230,20 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 31536000  # 1 год
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    
+    CSRF_TRUSTED_ORIGINS = [f'https://{host}' for host in ALLOWED_HOSTS if host not in ['localhost', '127.0.0.1']]
+
+if not DEBUG and env('SENTRY_DSN', default=''):
+    sentry_sdk.init(
+        dsn=env('SENTRY_DSN'),
+        integrations=[DjangoIntegration()],
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+        environment='production',
+        before_send=lambda event, hint: event if not DEBUG else None,
+    )
+ADMIN_URL = env('ADMIN_URL', default='admin/')

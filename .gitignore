@@ -21,6 +21,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 *.log
 local_settings.py
@@ -31,6 +32,8 @@ db.sqlite3-journal
 /media/
 
 .env
+.env.local
+.env.production
 .venv
 
 .vscode/
@@ -38,8 +41,37 @@ db.sqlite3-journal
 *.swp
 *.swo
 *~
-
 .DS_Store
 Thumbs.db
 
 docker-compose.override.yml
+
+logs/
+*.log
+
+nginx/ssl/*.key
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+
+*.sql
+*.dump
+backups/
+
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+.pytest_cache/
+.tox/
+
+celerybeat-schedule
+celerybeat.pid
+
+node_modules/
+npm-debug.log
+yarn-error.log
+
+.DS_Store
+Thumbs.db

@@ -1,36 +1,156 @@
 #!/bin/bash
-echo "Waiting for PostgreSQL..."
+set -e
 
+echo "======================================"
+echo "🚀 Starting Django Application"
+echo "======================================"
+
+echo "⏳ Waiting for PostgreSQL..."
 python - << END
-import time, socket
+import time
+import socket
+import sys
 
-while True:
+max_retries = 30
+retry_count = 0
+
+while retry_count < max_retries:
     try:
-        s = socket.create_connection(("db", 5432), 1)
+        s = socket.create_connection(("db", 5432), timeout=2)
         s.close()
-        break
-    except Exception:
-        time.sleep(0.1)
+        print("✅ PostgreSQL is ready!")
+        sys.exit(0)
+    except Exception as e:
+        retry_count += 1
+        if retry_count >= max_retries:
+            print(f"❌ Failed to connect to PostgreSQL after {max_retries} attempts")
+            sys.exit(1)
+        print(f"⏳ PostgreSQL not ready yet, attempt {retry_count}/{max_retries}...")
+        time.sleep(1)
 END
 
-echo "PostgreSQL started"
+echo "⏳ Waiting for Redis..."
+python - << END
+import time
+import socket
+import sys
 
-echo "Running migrations..."
+max_retries = 30
+retry_count = 0
+
+while retry_count < max_retries:
+    try:
+        s = socket.create_connection(("redis", 6379), timeout=2)
+        s.close()
+        print("✅ Redis is ready!")
+        sys.exit(0)
+    except Exception as e:
+        retry_count += 1
+        if retry_count >= max_retries:
+            print(f"❌ Failed to connect to Redis after {max_retries} attempts")
+            sys.exit(1)
+        print(f"⏳ Redis not ready yet, attempt {retry_count}/{max_retries}...")
+        time.sleep(1)
+END
+
+echo "📊 Running database migrations..."
 python manage.py migrate --noinput
+if [ $? -eq 0 ]; then
+    echo "✅ Migrations completed successfully"
+else
+    echo "❌ Migrations failed"
+    exit 1
+fi
 
-echo "Collecting static files..."
-python manage.py collectstatic --noinput
+echo "📦 Collecting static files..."
+python manage.py collectstatic --noinput --clear
+if [ $? -eq 0 ]; then
+    echo "✅ Static files collected successfully"
+else
+    echo "❌ Static files collection failed"
+    exit 1
+fi
 
-echo "Creating superuser if doesn't exist..."
+echo "👤 Checking superuser..."
 python manage.py shell << END
 from django.contrib.auth import get_user_model
+import os
+
 User = get_user_model()
-if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', 'admin@example.com', 'admin')
-    print('Superuser created: admin/admin')
+
+username = os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')
+email = os.environ.get('DJANGO_SUPERUSER_EMAIL', 'admin@example.com')
+password = os.environ.get('DJANGO_SUPERUSER_PASSWORD', 'admin')
+
+if not User.objects.filter(username=username).exists():
+    User.objects.create_superuser(username, email, password)
+    print(f'✅ Superuser created: {username}')
 else:
-    print('Superuser already exists')
+    print(f'ℹ️  Superuser already exists: {username}')
 END
 
-echo "Starting server..."
+echo "📁 Creating directories..."
+mkdir -p /app/logs /app/media /app/staticfiles
+echo "✅ Directories created"
+
+echo "🔍 Validating environment..."
+python - << END
+import os
+import sys
+
+required_vars = [
+    'SECRET_KEY',
+    'POSTGRES_DB',
+    'POSTGRES_USER',
+    'POSTGRES_PASSWORD',
+    'STRIPE_PUBLISHABLE_KEY_USD',
+    'STRIPE_SECRET_KEY_USD',
+    'STRIPE_PUBLISHABLE_KEY_EUR',
+    'STRIPE_SECRET_KEY_EUR',
+]
+
+missing_vars = [var for var in required_vars if not os.environ.get(var)]
+
+if missing_vars:
+    print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+    sys.exit(1)
+
+# Check DEBUG mode
+debug = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+if debug:
+    print("⚠️  WARNING: Running in DEBUG mode!")
+else:
+    print("✅ Running in production mode (DEBUG=False)")
+
+# Check Stripe keys
+stripe_pub = os.environ.get('STRIPE_PUBLISHABLE_KEY_USD', '')
+stripe_sec = os.environ.get('STRIPE_SECRET_KEY_USD', '')
+
+if debug:
+    if not stripe_pub.startswith('pk_test_'):
+        print("⚠️  WARNING: Using non-test Stripe publishable key in DEBUG mode!")
+    if not stripe_sec.startswith('sk_test_'):
+        print("⚠️  WARNING: Using non-test Stripe secret key in DEBUG mode!")
+else:
+    if not stripe_pub.startswith('pk_live_'):
+        print("❌ ERROR: Must use live Stripe publishable key in production!")
+        sys.exit(1)
+    if not stripe_sec.startswith('sk_live_'):
+        print("❌ ERROR: Must use live Stripe secret key in production!")
+        sys.exit(1)
+    print("✅ Using live Stripe keys")
+
+print("✅ Environment validation passed")
+END
+
+if [ $? -ne 0 ]; then
+    echo "❌ Environment validation failed"
+    exit 1
+fi
+
+echo "======================================"
+echo "✅ Initialization complete"
+echo "🚀 Starting server..."
+echo "======================================"
+
 exec "$@"

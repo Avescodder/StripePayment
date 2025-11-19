@@ -20,16 +20,20 @@ class Item(models.Model):
         max_length=3,
         choices=CURRENCY_CHOICES,
         default='usd',
-        verbose_name='Валюта'
+        verbose_name='Валюта',
+        db_index=True 
     )
     image_url = models.URLField(blank=True, null=True, verbose_name='URL изображения')
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'Товар'
         verbose_name_plural = 'Товары'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at', 'currency']),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.price} {self.currency.upper()}"
@@ -61,19 +65,35 @@ class Discount(models.Model):
         max_length=200,
         blank=True,
         null=True,
-        verbose_name='Stripe Coupon ID'
+        verbose_name='Stripe Coupon ID',
+        unique=True  
     )
-    active = models.BooleanField(default=True, verbose_name='Активна')
+    active = models.BooleanField(default=True, verbose_name='Активна', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = 'Скидка'
         verbose_name_plural = 'Скидки'
+        indexes = [
+            models.Index(fields=['active', '-created_at']),
+        ]
 
     def __str__(self):
         if self.discount_type == 'percentage':
             return f"{self.name} - {self.value}%"
         return f"{self.name} - {self.value}"
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        
+        if self.discount_type == 'percentage' and self.value > 100:
+            raise ValidationError('Процент скидки не может быть больше 100%')
+        
+        if self.discount_type == 'percentage' and self.value < 0:
+            raise ValidationError('Процент скидки не может быть отрицательным')
+        
+        if self.discount_type == 'fixed' and self.value < 0:
+            raise ValidationError('Фиксированная скидка не может быть отрицательной')
 
 
 class Tax(models.Model):
@@ -88,18 +108,31 @@ class Tax(models.Model):
         max_length=200,
         blank=True,
         null=True,
-        verbose_name='Stripe Tax Rate ID'
+        verbose_name='Stripe Tax Rate ID',
+        unique=True
     )
     inclusive = models.BooleanField(default=False, verbose_name='Включён в цену')
-    active = models.BooleanField(default=True, verbose_name='Активен')
+    active = models.BooleanField(default=True, verbose_name='Активен', db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = 'Налог'
         verbose_name_plural = 'Налоги'
+        indexes = [
+            models.Index(fields=['active', '-created_at']),
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.percentage}%"
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        
+        if self.percentage < 0:
+            raise ValidationError('Процент налога не может быть отрицательным')
+        
+        if self.percentage > 100:
+            raise ValidationError('Процент налога не может быть больше 100%')
 
 
 class Order(models.Model):
@@ -128,28 +161,42 @@ class Order(models.Model):
         max_length=20,
         choices=STATUS_CHOICES,
         default='pending',
-        verbose_name='Статус'
+        verbose_name='Статус',
+        db_index=True  
     )
     stripe_session_id = models.CharField(
         max_length=200,
         blank=True,
         null=True,
-        verbose_name='Stripe Session ID'
+        verbose_name='Stripe Session ID',
+        unique=True,  
+        db_index=True  
     )
     total_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0,
-        verbose_name='Общая сумма'
+        verbose_name='Общая сумма',
+        db_index=True 
     )
-    currency = models.CharField(max_length=3, default='usd', verbose_name='Валюта')
-    created_at = models.DateTimeField(auto_now_add=True)
+    currency = models.CharField(
+        max_length=3,
+        default='usd',
+        verbose_name='Валюта',
+        db_index=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'Заказ'
         verbose_name_plural = 'Заказы'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at', 'status']),
+            models.Index(fields=['status', '-total_amount']),
+            models.Index(fields=['stripe_session_id']),
+        ]
 
     def __str__(self):
         return f"Заказ #{self.id} - {self.total_amount} {self.currency.upper()}"
@@ -157,24 +204,35 @@ class Order(models.Model):
     def calculate_total(self):
         total = sum(
             order_item.item.price * order_item.quantity 
-            for order_item in self.orderitem_set.all()
+            for order_item in self.orderitem_set.select_related('item').all()
         )
         
         if self.discount and self.discount.active:
             if self.discount.discount_type == 'percentage':
-                total = total * (1 - self.discount.value / 100)
-            else:
+                discount_amount = total * (self.discount.value / 100)
+                total = total - discount_amount
+            else:  
                 total = max(total - self.discount.value, Decimal('0'))
-        
+
         if self.tax and self.tax.active and not self.tax.inclusive:
-            total = total * (1 + self.tax.percentage / 100)
+            tax_amount = total * (self.tax.percentage / 100)
+            total = total + tax_amount
         
-        return total
+        return total.quantize(Decimal('0.01'))  
 
     def save(self, *args, **kwargs):
         if self.pk:
             self.total_amount = self.calculate_total()
         super().save(*args, **kwargs)
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        
+        if self.discount and not self.discount.active:
+            raise ValidationError('Нельзя использовать неактивную скидку')
+        
+        if self.tax and not self.tax.active:
+            raise ValidationError('Нельзя использовать неактивный налог')
 
 
 class OrderItem(models.Model):
@@ -190,6 +248,17 @@ class OrderItem(models.Model):
         verbose_name = 'Товар в заказе'
         verbose_name_plural = 'Товары в заказе'
         unique_together = ['order', 'item']
+        indexes = [
+            models.Index(fields=['order', 'item']),
+        ]
 
     def __str__(self):
         return f"{self.item.name} x{self.quantity}"
+    
+    def get_subtotal(self):
+        return (self.item.price * self.quantity).quantize(Decimal('0.01'))
+    
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.order_id:
+            self.order.save()  
