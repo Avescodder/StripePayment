@@ -12,7 +12,7 @@ Env.read_env()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = env('SECRET_KEY')  
+SECRET_KEY = env('SECRET_KEY')
 
 DEBUG = env.bool('DEBUG', default=False)
 
@@ -57,7 +57,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'payments.context_processors.admin_url', 
+                'payments.context_processors.admin_url',
             ],
         },
     },
@@ -69,11 +69,11 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': env('POSTGRES_DB', default='stripe_db'),
-        'USER': env('POSTGRES_USER', default='postgres'),
-        'PASSWORD': env('POSTGRES_PASSWORD', default='postgres'),
+        'USER': env('POSTGRES_USER', default='stripe_user'),
+        'PASSWORD': env('POSTGRES_PASSWORD'),
         'HOST': env('POSTGRES_HOST', default='db'),
         'PORT': env('POSTGRES_PORT', default='5432'),
-        'CONN_MAX_AGE': 600,  
+        'CONN_MAX_AGE': 600,
         'OPTIONS': {
             'connect_timeout': 10,
         }
@@ -101,18 +101,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-keys = {
-    'USD_PUB': env('STRIPE_PUBLISHABLE_KEY_USD', default=''),
-    'USD_SEC': env('STRIPE_SECRET_KEY_USD', default=''),
-    'EUR_PUB': env('STRIPE_PUBLISHABLE_KEY_EUR', default=''),
-    'EUR_SEC': env('STRIPE_SECRET_KEY_EUR', default=''),
-}
-    
-
-
 STRIPE_PUBLISHABLE_KEY_USD = env('STRIPE_PUBLISHABLE_KEY_USD')
 STRIPE_SECRET_KEY_USD = env('STRIPE_SECRET_KEY_USD')
-
 STRIPE_PUBLISHABLE_KEY_EUR = env('STRIPE_PUBLISHABLE_KEY_EUR')
 STRIPE_SECRET_KEY_EUR = env('STRIPE_SECRET_KEY_EUR')
 
@@ -126,14 +116,15 @@ STRIPE_WEBHOOK_IPS = [
 
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': env('REDIS_URL', default='redis://redis:6379/0'),
-        'KEY_PREFIX': 'stripe_payments',
-        'TIMEOUT': 300,
         'OPTIONS': {
-            'db': '0',
-            'pool_class': 'redis.BlockingConnectionPool',
-        }
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+        },
+        'KEY_PREFIX': 'stripe',
+        'TIMEOUT': 300,
     }
 }
 
@@ -153,14 +144,6 @@ LOGGING = {
             'style': '{',
         },
     },
-    'filters': {
-        'require_debug_false': {
-            '()': 'django.utils.log.RequireDebugFalse',
-        },
-        'require_debug_true': {
-            '()': 'django.utils.log.RequireDebugTrue',
-        },
-    },
     'handlers': {
         'console': {
             'level': 'INFO',
@@ -171,7 +154,7 @@ LOGGING = {
             'level': 'INFO',
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': BASE_DIR / 'logs' / 'django.log',
-            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'maxBytes': 1024 * 1024 * 10,
             'backupCount': 5,
             'formatter': 'verbose',
         },
@@ -216,12 +199,15 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
-    SECURE_HSTS_SECONDS = 31536000  # 1 год
+    SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     
-    CSRF_TRUSTED_ORIGINS = [f'https://{host}' for host in ALLOWED_HOSTS if host not in ['localhost', '127.0.0.1']]
+    CSRF_TRUSTED_ORIGINS = [
+        f'https://{host}' for host in ALLOWED_HOSTS 
+        if host not in ['localhost', '127.0.0.1']
+    ]
 
 if not DEBUG and env('SENTRY_DSN', default=''):
     sentry_sdk.init(
@@ -230,6 +216,6 @@ if not DEBUG and env('SENTRY_DSN', default=''):
         traces_sample_rate=0.1,
         send_default_pii=False,
         environment='production',
-        before_send=lambda event, hint: event if not DEBUG else None,
     )
+
 ADMIN_URL = os.getenv('ADMIN_URL', 'admin/')

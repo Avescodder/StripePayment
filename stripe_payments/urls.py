@@ -22,7 +22,8 @@ urlpatterns = [
     
     path('webhook/stripe/', views.stripe_webhook, name='stripe_webhook'),
     
-    path('health', views.health_check, name='health_check'),
+    path('health/', views.health_check, name='health_check'),
+    path('health', views.health_check),
 ]
 
 if settings.DEBUG:
